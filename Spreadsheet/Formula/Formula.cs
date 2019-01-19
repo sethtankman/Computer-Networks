@@ -75,7 +75,7 @@ namespace Formulas
             // Overall token pattern.  It contains embedded white space that must be ignored when
             // it is used.  See below for an example of this.
             String tokenPattern = String.Format("({0}) | ({1}) | ({2}) | ({3}) | ({4}) | ({5}) | (.)",
-                                            lpPattern, rpPattern, opPattern, varPattern, doublePattern, spacePattern);
+                                            spacePattern, lpPattern, rpPattern, opPattern, varPattern, doublePattern);
 
             // Create a Regex for matching tokens.  Notice the second parameter to Split says 
             // to ignore embedded white space in the pattern.
@@ -87,46 +87,45 @@ namespace Formulas
             // Start enumerating tokens
             while (match.Success)
             {
-                // Holds the token's type
-                TokenType type;
+                // Ignore spaces
+                if (!match.Groups[1].Success)
+                {
+                    // Holds the token's type
+                    TokenType type;
 
-                if (match.Groups[1].Success)
-                {
-                    type = LParen;
-                }
-                else if (match.Groups[2].Success)
-                {
-                    type = RParen;
-                }
-                else if (match.Groups[3].Success)
-                {
-                    type = Oper;
-                }
-                else if (match.Groups[4].Success)
-                {
-                    type = Var;
-                }
-                else if (match.Groups[5].Success)
-                {
-                    type = Number;
-                }
-                else if (match.Groups[6].Success)
-                {
-                    // Ignore white space
-                    continue;
-                }
-                else if (match.Groups[7].Success)
-                {
-                    type = Invalid;
-                }
-                else
-                {
-                    // We shouldn't get here
-                    throw new InvalidOperationException("Regular exception failed in GetTokens");
-                }
+                    if (match.Groups[2].Success)
+                    {
+                        type = LParen;
+                    }
+                    else if (match.Groups[3].Success)
+                    {
+                        type = RParen;
+                    }
+                    else if (match.Groups[4].Success)
+                    {
+                        type = Oper;
+                    }
+                    else if (match.Groups[5].Success)
+                    {
+                        type = Var;
+                    }
+                    else if (match.Groups[6].Success)
+                    {
+                        type = Number;
+                    }
+                    else if (match.Groups[7].Success)
+                    {
+                        type = Invalid;
+                    }
+                    else
+                    {
+                        // We shouldn't get here
+                        throw new InvalidOperationException("Regular exception failed in GetTokens");
+                    }
 
-                // Yield the token
-                yield return new Tuple<string, TokenType>(match.Value, type);
+                    // Yield the token
+                    yield return new Tuple<string, TokenType>(match.Value, type);
+                }
 
                 // Look for the next match
                 match = match.NextMatch();
