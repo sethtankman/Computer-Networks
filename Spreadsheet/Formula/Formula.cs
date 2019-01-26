@@ -16,6 +16,7 @@ namespace Formulas
     /// </summary>
     public class Formula
     {
+        private IEnumerable<Tuple<String, TokenType>> formulaTokens;
         /// <summary>
         /// Creates a Formula from a string that consists of a standard infix expression composed
         /// from non-negative floating-point numbers (using C#-like syntax for double/int literals), 
@@ -38,6 +39,79 @@ namespace Formulas
         /// </summary>
         public Formula(String formula)
         {
+            Stack<Tuple<String, TokenType>> parenthStack = new Stack<Tuple<String, TokenType>>();
+            formulaTokens = GetTokens(formula);
+            Tuple<String, TokenType> lastToken = null;
+            if (formulaTokens.GetEnumerator().MoveNext().ToString().Equals("False"))
+            {
+                throw new FormulaFormatException("No entry");
+            }
+
+            foreach (Tuple<String, TokenType> token in formulaTokens)
+            {
+                //handle unacceptable first tokens
+                if (lastToken == null)
+                {
+                    if (token.Item2.Equals(RParen) || token.Item2.Equals(Oper))
+                    {
+                        throw new FormulaFormatException("Invalid First Token: " + token.Item1);
+                    }
+                }
+                //handle invalid tokens
+                if (token.Item2.Equals(Invalid))
+                {
+                    throw new FormulaFormatException("Invalid token: " + token.Item1);
+                }
+                //handle consecutive tokens
+                if (lastToken != null && lastToken.Item2.Equals(token.Item2) &&
+                    (lastToken.Item2.Equals(Oper) || lastToken.Item2.Equals(Var) ||
+                    lastToken.Item2.Equals(Number)))
+                {
+                    throw new FormulaFormatException("Multiple consecutive invalidly placed tokens found");
+                }
+                //Ensure corrrect tokens after ( and operators
+                if (lastToken != null && (lastToken.Item1.Equals("(") || lastToken.Item2.Equals(Oper)))
+                {
+                    if(token.Item2.Equals(Oper) || token.Item1.Equals(")"))
+                    {
+                        throw new FormulaFormatException("Invalid format");
+                    }
+                }
+                //Ensure correct tokens after ), numbers, variables
+                if (lastToken != null && (lastToken.Item2.Equals(Number) || 
+                    lastToken.Item2.Equals(Var) || lastToken.Item1.Equals(")")))
+                {
+                    if(token.Item1.Equals("(") || token.Item2.Equals(Number) || token.Item2.Equals(Var))
+                    {
+                        throw new FormulaFormatException("Invalid format");
+                    }
+                }
+
+                //handle parenthesis
+                if (token.Item2.Equals(RParen) || token.Item2.Equals(LParen))
+                {
+                    if (token.Item2.Equals(LParen))
+                    {
+                        parenthStack.Push(token);
+                    }
+                    else if (parenthStack.Count > 0)
+                    {
+                        parenthStack.Pop();
+                    }
+                    else { throw new FormulaFormatException("Invalid Parenthesis"); }
+
+                }
+                lastToken = token;
+            }
+            if (parenthStack.Count != 0)
+            {
+                throw new FormulaFormatException("Invalid Parenthesis");
+            }
+            if (lastToken.Item2.Equals(Oper))
+            {
+                throw new FormulaFormatException("Invalid final token: Operator");
+            }
+
         }
         /// <summary>
         /// Evaluates this Formula, using the Lookup delegate to determine the values of variables.  (The
@@ -50,7 +124,254 @@ namespace Formulas
         /// </summary>
         public double Evaluate(Lookup lookup)
         {
-            return 0;
+            Stack<Tuple<String, TokenType>> numStack = new Stack<Tuple<String, TokenType>>();
+            Stack<Tuple<String, TokenType>> operStack = new Stack<Tuple<String, TokenType>>();
+
+            //add tokens to stacks
+            foreach (Tuple<String, TokenType> token in formulaTokens)
+            {
+                //Adds Numbers and Variables
+                if (token.Item2.Equals(Number) || token.Item2.Equals(Var))
+                {
+                    double value;
+                    //Variable handler
+                    if (token.Item2.Equals(Var))
+                    {
+                        try
+                        {
+                            value = lookup(token.Item1);
+                        }
+                        catch (UndefinedVariableException)
+                        {
+                            throw new FormulaEvaluationException(token.Item1);
+                        }
+
+                        var toPush = GetTokens(value + "").GetEnumerator();
+                        toPush.MoveNext();
+
+                        if (operStack.Count == 0)
+                        {
+                            numStack.Push(toPush.Current);
+                            continue;
+                        }
+
+                        if (operStack.Peek().Item1.Equals("*") ||
+                            operStack.Peek().Item1.Equals("/"))
+                        {
+                            double.TryParse(numStack.Pop().Item1, out double num1);
+
+                            if (operStack.Peek().Item1.Equals("*"))
+                            {
+                                double product = num1 * value;
+                                operStack.Pop();
+                                toPush = GetTokens(product + "").GetEnumerator();
+                                toPush.MoveNext();
+                                numStack.Push(toPush.Current);
+                            }
+                            else if (operStack.Peek().Item1.Equals("/"))
+                            {
+                                double quotient = num1 / value;
+                                operStack.Pop();
+                                toPush = GetTokens(quotient + "").GetEnumerator();
+                                toPush.MoveNext();
+                                numStack.Push(toPush.Current);
+                            }
+                        }
+                        else
+                        {
+                            numStack.Push(toPush.Current);
+                            continue;
+                        }
+                        continue;
+                    }
+
+                    if (operStack.Count == 0)
+                    {
+                        numStack.Push(token);
+                        continue;
+                    }
+
+                    if (operStack.Peek().Item1.Equals("*") ||
+                        operStack.Peek().Item1.Equals("/"))
+                    {
+                        double.TryParse(numStack.Pop().Item1, out double num1);
+                        double.TryParse(token.Item1, out double num2);
+
+                        if (operStack.Peek().Item1.Equals("*"))
+                        {
+                            double product = num1 * num2;
+                            operStack.Pop();
+                            var toPush = GetTokens(product + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                        else if (operStack.Peek().Item1.Equals("/"))
+                        {
+                            double quotient = num1 / num2;
+                            operStack.Pop();
+                            var toPush = GetTokens(quotient + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                    }
+                    else
+                    {
+                        numStack.Push(token);
+                        continue;
+                    }
+                }
+
+
+                //Handles + and -
+                if (token.Item1.Equals("+") || token.Item1.Equals("-"))
+                {
+                    if (operStack.Count == 0)
+                    {
+                        operStack.Push(token);
+                        continue;
+                    }
+                    if (operStack.Peek().Item1.Equals("+") || operStack.Peek().Item1.Equals("-"))
+                    {
+                        double.TryParse(numStack.Pop().Item1, out double num1);
+                        double.TryParse(numStack.Pop().Item1, out double num2);
+                        if (operStack.Peek().Item1.Equals("+"))
+                        {
+                            double sum = num1 + num2;
+                            operStack.Pop();
+                            var toPush = GetTokens(sum + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                        if (operStack.Peek().Item1.Equals("-"))
+                        {
+                            double difference = num1 - num2;
+                            operStack.Pop();
+                            var toPush = GetTokens(difference + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                    }
+                    operStack.Push(token);
+                    continue;
+                }
+
+                //Handles Left Parenthesis, * and /
+                if (token.Item2.Equals(LParen) || token.Item1.Equals("*") || token.Item1.Equals("/"))
+                {
+                    operStack.Push(token);
+                    continue;
+                }
+
+                //Handles Right Parenthesis
+                if (token.Item2.Equals(RParen))
+                {
+                    //Addition and subtraction with parenthesis
+                    if (operStack.Peek().Item1.Equals("+") || operStack.Peek().Item1.Equals("-"))
+                    {
+                        double.TryParse(numStack.Pop().Item1, out double num1);
+                        double.TryParse(numStack.Pop().Item1, out double num2);
+                        if (operStack.Peek().Item1.Equals("+"))
+                        {
+                            double sum = num2 + num1;
+                            operStack.Pop();
+                            var toPush = GetTokens(sum + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                        if (operStack.Peek().Item1.Equals("-"))
+                        {
+                            double difference = num2 - num1;
+                            operStack.Pop();
+                            var toPush = GetTokens(difference + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                        operStack.Pop();
+                    }
+                    //Multiplication and Division with parenthesis
+                    else if (operStack.Peek().Item1.Equals("*") ||
+                        operStack.Peek().Item1.Equals("/"))
+                    {
+                        double.TryParse(numStack.Pop().Item1, out double num1);
+                        double.TryParse(numStack.Pop().Item1, out double num2);
+
+                        if (operStack.Peek().Item1.Equals("*"))
+                        {
+                            double product = num1 * num2;
+                            operStack.Pop();
+                            var toPush = GetTokens(product + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                        else if (operStack.Peek().Item1.Equals("/"))
+                        {
+                            double quotient = num1 / num2;
+                            operStack.Pop();
+                            var toPush = GetTokens(quotient + "").GetEnumerator();
+                            toPush.MoveNext();
+                            numStack.Push(toPush.Current);
+                        }
+                        operStack.Pop();
+                    }
+                    else if (operStack.Peek().Item1.Equals("("))
+                    {
+                        operStack.Pop();
+                        continue;
+                    } else
+                    {
+                        numStack.Push(token);
+                        continue;
+                    }
+                }
+
+            }
+            //Perform final operation if operStack is empty
+            if (operStack.Count != 0)
+            {
+                double.TryParse(numStack.Pop().Item1, out double num1);
+                double.TryParse(numStack.Pop().Item1, out double num2);
+                if (operStack.Peek().Item1.Equals("+"))
+                {
+                    double sum = num2 + num1;
+                    operStack.Pop();
+                    var toPush = GetTokens(sum + "").GetEnumerator();
+                    toPush.MoveNext();
+                    numStack.Push(toPush.Current);
+                }
+                else if (operStack.Peek().Item1.Equals("-"))
+                {
+                    double difference = num2 - num1;
+                    operStack.Pop();
+                    var toPush = GetTokens(difference + "").GetEnumerator();
+                    toPush.MoveNext();
+                    numStack.Push(toPush.Current);
+                }
+                else if (operStack.Peek().Item1.Equals("*"))
+                {
+                    double product = num2 * num1;
+                    operStack.Pop();
+                    var toPush = GetTokens(product + "").GetEnumerator();
+                    toPush.MoveNext();
+                    numStack.Push(toPush.Current);
+                }
+                else if (operStack.Peek().Item1.Equals("/"))
+                {
+                    double quotient = num2 / num1;
+                    operStack.Pop();
+                    var toPush = GetTokens(quotient + "").GetEnumerator();
+                    toPush.MoveNext();
+                    numStack.Push(toPush.Current);
+                }
+            }
+            double.TryParse(numStack.Pop().Item1, out double evaluation);
+            return evaluation;
+        }
+
+        public double numCrunch(Stack<Tuple<String, TokenType>> nums, Stack<Tuple<String, TokenType>> opers)
+        {
+            double answer = 0;
+
+            return answer;
         }
 
         /// <summary>
